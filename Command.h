@@ -5,7 +5,6 @@
 typedef struct {
     int tokens_count;
     char** tokens;
-    // char* output_stream_path;
 } Command;
 
 Command* init_command();

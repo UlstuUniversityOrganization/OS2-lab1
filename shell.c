@@ -56,11 +56,8 @@ void execute_external_command(Command* command) {
         if (input_file) { // определен входной файл
             int input_fd = open(input_file, O_RDONLY);
 
-            if (input_fd < 0) {
-                // fprintf(stderr, "Cannot open input file!\n");
-                // exit(EXIT_FAILURE);
-                throw_error("Cannot open input file!\n");
-            }
+            if (input_fd < 0)
+                throw_error("Cannot open the input file!\n");
 
             // переопределяем стандартный ввод
             if (dup2(input_fd, STDIN_FILENO) == -1) {
@@ -108,25 +105,98 @@ void execute_external_command(Command* command) {
             close(dev_null_fd);
         }
 
-        if (strcmp(tokens[0], "help") == 0) {
-            execlp("less", "less", "README", NULL);
-            throw_error("Cannot exec help!\n");
-        } else {
-            execvp(tokens[0], tokens);
-            throw_error("Cannot exec help!\n");
-        }
+        execvp(command->tokens[0], command->tokens);
+        throw_error("Cannot execute the help command!\n");
     } else if (child_pid > 0) { // родительский процесс
         if (!background) {               // если задача не фоновая, то
             waitpid(child_pid, NULL, 0); // ждем ее завершения
         }
     } else {
-        fprintf(stderr, "Cannot fork process!\n");
+        fprintf(stderr, "Cannot fork the process!\n");
     }
 }
 
+// Обработка команды help
+int execute_internal_help() {
+    pid_t external_pid = fork();
+
+    if(external_pid == 0) {
+
+        int pipefd[2];
+
+        if (pipe(pipefd) == -1) {
+            fprintf(stderr, "Pipe create error\n");
+            exit(EXIT_FAILURE);
+        }
+
+        pid_t child_pid = fork();
+
+        if (child_pid == -1) {
+            fprintf(stderr, "Help fork error\n");
+            exit(EXIT_FAILURE);
+        }
+
+        if (child_pid == 0) {
+            close(STDOUT_FILENO);
+
+            int new_fd = dup(pipefd[1]);
+            if (new_fd == -1) {
+                fprintf(stderr, "dup in help error\n");
+                kill(getppid(), SIGTERM);
+                exit(EXIT_FAILURE);
+            }
+
+            close(pipefd[0]);
+            close(pipefd[1]);
+
+            int fd = open("README", O_RDONLY);
+            if (fd == -1) {
+                fprintf(stderr, "README open error\n");
+                kill(getppid(), SIGTERM);
+                exit(EXIT_FAILURE);
+            }
+
+            struct stat file_stat;
+            if (fstat(fd, &file_stat) == -1) {
+                fprintf(stderr, "Fstat in help error\n");
+                close(fd);
+                kill(getppid(), SIGTERM);
+                exit(EXIT_FAILURE);
+            }
+
+            char buffer[file_stat.st_size];
+            ssize_t n;
+            while ((n = read(fd, buffer, sizeof(buffer))) > 0) {
+                ssize_t written = write(STDOUT_FILENO, buffer, n);
+                if (written == -1) {
+                    fprintf(stderr, "Write in help error\n");
+                    kill(getppid(), SIGTERM);
+                    exit(EXIT_FAILURE);
+                }
+            }
+
+            close(fd);
+
+            exit(EXIT_SUCCESS);
+        } else {
+            close(pipefd[1]);
+
+            dup2(pipefd[0], STDIN_FILENO);
+            close(pipefd[0]);
+            execlp("less", "less", (char *)NULL);
+            exit(EXIT_FAILURE);
+        }
+    } else {
+        waitpid(external_pid, NULL, 0);
+        return true;
+    }
+    return true;
+}
 
 void execute_internal_cd(Command* command) {
     if (command->tokens_count == 1) { // дана только сама команда
+        if (!chdir("."))
+            printf("Cannot change directory!\n");
         fprintf(stderr, "Cannot change directory!\n");
     } else {
         if (chdir(command->tokens[1]) != 0) {
@@ -151,23 +221,12 @@ bool execute_internal_dir(Command* command) {
         return true;
     }
 
-    char* filenames[MAX_DIRECTORY_CONTENTS]; // имена файлов и папок
-    int files_cnt = 0;                       // количество файлов и папок
-
     // проходимся по папке
     while ((entry = readdir(dir)) != NULL) {
-        filenames[files_cnt++] = strdup(entry->d_name);
+        printf("%s\n", entry->d_name);
     }
 
     closedir(dir);
-
-    // сортируем результат
-    qsort(filenames, files_cnt, sizeof(char*), compare_filenames);
-    for (int i = 0; i < files_cnt; i++) {
-        printf("%s\n", filenames[i]);
-        free(filenames[i]);
-    }
-
     return true;
 }
 
@@ -215,6 +274,9 @@ bool execute_internal_command(Command* command) {
     } else if (strcmp(command->tokens[0], "pause") == 0) {
         execute_internal_pause(command);
         return true;
+    } else if (strcmp(command->tokens[0], "help") == 0) {
+        return execute_internal_help();
+        // return help();
     } else if (strcmp(command->tokens[0], "quit") == 0 || strcmp(command->tokens[0], "exit") == 0)
         execute_internal_quit_exit(command);
 
@@ -269,7 +331,7 @@ void execute_commands_from_user_input() {
     while (true) {
         print_current_working_directory("> ");
 
-        // // если не можем получить входную строку или достигнут конец файла
+        // если не можем получить входную строку или достигнут конец файла
         if (!fgets(user_input, MAX_INPUT_SIZE, stdin))
             break;
 
@@ -280,6 +342,8 @@ void execute_commands_from_user_input() {
 }
 
 int main(int argc, char* argv[]) {
+    setenv("PWD", getcwd(NULL, 0), 1);
+    
     if (argc > 1)
         return execute_commands_from_file(argv[1]);
     
@@ -291,6 +355,5 @@ int main(int argc, char* argv[]) {
     free(shell_path);
 
     execute_commands_from_user_input();
-
     return EXIT_SUCCESS;
 }

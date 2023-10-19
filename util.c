@@ -1,29 +1,23 @@
 #include "util.h"
 
-void tokenize(char* input, char** tokens, int* tokens_count) {
+void tokenize(char* input, char*** tokens, int* tokens_count) {
     *tokens_count = 0;
     int token_capacity = 2;
     
     char *token = strtok(input, " \t\n\r");
-    tokens = (char**)malloc(sizeof(char*) * token_capacity);
+    (*tokens) = (char**)malloc(sizeof(char*) * token_capacity);
     while (token != NULL) {
         if (*tokens_count >= token_capacity) {
             token_capacity *= 2;
-            tokens = (char**)realloc(tokens, sizeof(char*) * token_capacity);
+            (*tokens) = (char**)realloc(*tokens, sizeof(char*) * token_capacity);
         }
         
-        tokens[*tokens_count] = token;
+        (*tokens)[*tokens_count] = token;
         (*tokens_count)++;
         token = strtok(NULL, " \t\n\r");
     }
+    memset(&((*tokens)[*tokens_count]), 0, (token_capacity - *tokens_count) * sizeof(char*));
 }
-
-// Command* to_command(char* str) {
-//     Command* command = init_command(str);
-//     tokenize(str, &command->tokens, &command->tokens_count);
-//     return command;
-// }
-
 
 int compare_filenames(const void* a, const void* b) {
     const char* filename1 = *(const char**)a;

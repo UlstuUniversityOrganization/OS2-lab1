@@ -9,6 +9,6 @@ Command* init_command() {
 
 Command* init_command_from_str(char* str) {
     Command* command = init_command();
-    tokenize(str, command->tokens, &command->tokens_count);
+    tokenize(str, &command->tokens, &command->tokens_count);
     return command;
 }

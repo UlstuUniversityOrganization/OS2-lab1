@@ -1,0 +1,11 @@
+echo How are you?
+sleep 2
+echo What are you doing?
+sleep 2
+echo Get ready to sleep 5 seconds:
+sleep 5
+echo The sleeper has awakened
+sleep 2
+echo Anyways, here are all the files in the current working directory, enjoy:
+sleep 2
+ls /home/spectre
