@@ -10,6 +10,7 @@
 #include <dirent.h>
 #include "Command.h"
 #include "util.h"
+#include <ulimit.h>
 
 
 #define SHELL_NAME "shell"            // имя файла оболочки

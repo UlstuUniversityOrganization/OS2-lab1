@@ -3,7 +3,7 @@
 extern char** __environ;
 
 void execute_external_command(Command* command) {
-
+    
     int token_count = command->tokens_count;
     char** tokens = command->tokens;
 
@@ -49,8 +49,16 @@ void execute_external_command(Command* command) {
         }
     }
 
+    
+
     // форкаемся
+    
     pid_t child_pid = fork();
+
+
+
+    
+            
 
     if (child_pid == 0) { // дочерний процесс
         if (input_file) { // определен входной файл
@@ -106,7 +114,7 @@ void execute_external_command(Command* command) {
         }
 
         execvp(command->tokens[0], command->tokens);
-        throw_error("Cannot execute the help command!\n");
+        // throw_error("Cannot execute the help command!\n");
     } else if (child_pid > 0) { // родительский процесс
         if (!background) {               // если задача не фоновая, то
             waitpid(child_pid, NULL, 0); // ждем ее завершения
@@ -195,9 +203,8 @@ int execute_internal_help() {
 
 void execute_internal_cd(Command* command) {
     if (command->tokens_count == 1) { // дана только сама команда
-        if (!chdir("."))
-            printf("Cannot change directory!\n");
-        fprintf(stderr, "Cannot change directory!\n");
+        if (chdir(".") != 0)
+            fprintf(stderr, "Cannot change directory!\n");
     } else {
         if (chdir(command->tokens[1]) != 0) {
             fprintf(stderr, "Cannot change directory!\n");
@@ -214,12 +221,19 @@ void execute_internal_clr(Command* command) {
 
 bool execute_internal_dir(Command* command) {
     struct dirent* entry;                                              // структура, описывающая директорию
-    DIR* dir = (command->tokens_count == 1 ? opendir(".") : opendir(command->tokens[1])); // если дана только команда - ничего не меняем
-
-    if (dir == NULL) {
-        fprintf(stderr, "Cannot open directory!\n");
-        return true;
+    DIR* dir = NULL;
+    if (command->tokens_count >= 1)
+    {
+        dir = opendir("."); // если дана только команда - ничего не меняем
     }
+        
+    else
+        dir = opendir(command->tokens[1]);
+    
+    // if (dir == NULL) {
+    //     fprintf(stderr, "Cannot open directory!\n");
+    //     return true;
+    // }
 
     // проходимся по папке
     while ((entry = readdir(dir)) != NULL) {
@@ -238,9 +252,37 @@ void execute_internal_environ(Command* command) {
     }
 }
 
-void execute_internal_echo(Command* command) {
-    for (int i = 1; i < command->tokens_count; i++) {
-        printf("%s%s", command->tokens[i], ((i == command->tokens_count-1) ? "\n" : " "));
+void execute_internal_echo(char** tokens, int tokens_count) {
+    for (int i = 1; i < tokens_count; i++) {
+
+        if (i + 1 < tokens_count)
+        {
+            if (tokens[i + 1] == NULL)
+            {
+                if (tokens[i] != NULL)
+                    printf("%s%s", tokens[i],"\n");
+            }
+            else
+            {
+                if (tokens[i] != NULL)
+                printf("%s%s", tokens[i]," ");
+            }
+        }
+        else
+            if (tokens[i] != NULL)
+                printf("%s%s", tokens[i],"\n");
+            else
+                break;
+
+        // printf("%s%s", command->tokens[i], ((i == command->tokens_count-1) ? "\n" : " "));|
+
+        // is_null = command->tokens[i] == NULL;
+        // if (!is_null)
+        //     printf("%s%s", command->tokens[i], ((i == command->tokens_count-1) ? "\n" : " "));
+        // else
+        //     printf("%s%s", command->tokens[i], " ");
+        // // if (command->tokens[i] == NULL)
+        // //     break;
     }
 }
 
@@ -256,31 +298,133 @@ void execute_internal_quit_exit(Command* command) {
 bool execute_internal_command(Command* command) {
     if (command->tokens_count == 0)
         return true;
+    
+    char** tokens = (char**)malloc(sizeof(char*) * command->tokens_count);
+    memcpy(tokens, command->tokens, sizeof(char*) * command->tokens_count);
+    
+    bool background = false;    // флаг для определения того, будет ли задача выполняться в фоне
+    char* input_file = NULL;    // имя файла, на который переопределен ввод
+    char* output_file = NULL;   // имя файла, на который переопределен вывод
+    bool append_output = false; // флаг для определения того, нужно ли добавлять к файлу данные
 
-    if (strcmp(command->tokens[0], "cd") == 0) {
+    if (command->tokens_count > 0 && strcmp(tokens[command->tokens_count-1], "&") == 0) {
+        background = true;
+        tokens[command->tokens_count-1] = NULL;
+    }
+
+        for (int i = 0; i < command->tokens_count-1; i++) {
+        if (!input_file && strcmp(tokens[i], "<") == 0) {
+            if (i < command->tokens_count-1) {    
+                input_file = tokens[i+1];
+                tokens[i] = NULL;
+                tokens[i + 1] = NULL;
+            } else {
+                fprintf(stderr, "Input file is missing!\n");
+                return true;
+            }
+        } else if (!output_file && strcmp(tokens[i], ">") == 0) {
+            if (i < command->tokens_count-1) {
+                output_file = tokens[i+1];
+                tokens[i] = NULL;
+                tokens[i + 1] = NULL;
+            } else {
+                fprintf(stderr, "Output file is missing!\n");
+                return true;
+            }
+        } else if (!output_file && strcmp(tokens[i], ">>") == 0) {
+            if (i < command->tokens_count-1) {
+                output_file = tokens[i+1];
+                tokens[i] = NULL;
+                tokens[i + 1] = NULL;
+                append_output = true;
+            } else {
+                fprintf(stderr, "Output file is missing!\n");
+                return true;
+            }
+        }
+    }
+
+    if (input_file) { // определен входной файл
+            int input_fd = open(input_file, O_RDONLY);
+
+            if (input_fd < 0)
+                throw_error("Cannot open the input file!\n");
+
+            // переопределяем стандартный ввод
+            if (dup2(input_fd, STDIN_FILENO) == -1) {
+                fprintf(stderr, "Cannot redirect input!\n");
+            }
+
+            close(input_fd);
+        }
+
+        if (output_file) {
+            int output_fd;
+            
+            if (append_output) { // нашли оператор ">>"
+                output_fd = open(output_file, O_CREAT | O_RDWR | O_APPEND, 0644);
+            } else {
+                output_fd = open(output_file, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+            }
+            
+            if (output_fd < 0)
+                throw_error("Cannot open output file!\n");
+
+            if (dup2(output_fd, STDOUT_FILENO) == -1) {
+                fprintf(stderr, "Cannot redirect output!\n");
+            }
+            
+            close(output_fd);
+        }
+
+        if (background) { // фоновая задача
+            int dev_null_fd = open("/dev/null", O_RDWR);
+            
+            if (dev_null_fd < 0)
+                throw_error("Cannot access /dev/null!\n");
+
+            if (!input_file) {
+                dup2(dev_null_fd, STDIN_FILENO);
+            }
+
+            if (!output_file) {
+                dup2(dev_null_fd, STDOUT_FILENO);
+            }
+
+            dup2(dev_null_fd, STDERR_FILENO);
+
+            close(dev_null_fd);
+        }
+    
+    
+
+
+    if (strcmp(tokens[0], "cd") == 0) {
         execute_internal_cd(command);
         return true;
-    } else if (strcmp(command->tokens[0], "clr") == 0) {
+    } else if (strcmp(tokens[0], "clr") == 0) {
         execute_internal_clr(command);
         return true;
-    } else if (strcmp(command->tokens[0], "dir") == 0) {
+    } else if (strcmp(tokens[0], "dir") == 0) {
         return execute_internal_dir(command);
-    } else if (strcmp(command->tokens[0], "environ") == 0) {
+    } else if (strcmp(tokens[0], "environ") == 0) {
         execute_internal_environ(command);
         return true;
-    } else if (strcmp(command->tokens[0], "echo") == 0) {
-        execute_internal_echo(command);
+    } else if (strcmp(tokens[0], "echo") == 0) {
+        execute_internal_echo(tokens, command->tokens_count);
         return true;
-    } else if (strcmp(command->tokens[0], "pause") == 0) {
+    } else if (strcmp(tokens[0], "pause") == 0) {
         execute_internal_pause(command);
         return true;
-    } else if (strcmp(command->tokens[0], "help") == 0) {
+    } else if (strcmp(tokens[0], "help") == 0) {
         return execute_internal_help();
         // return help();
-    } else if (strcmp(command->tokens[0], "quit") == 0 || strcmp(command->tokens[0], "exit") == 0)
+    } else if (strcmp(tokens[0], "quit") == 0 || strcmp(tokens[0], "exit") == 0)
         execute_internal_quit_exit(command);
-
     return false;
+
+    
+    return true;
 }
 
 int execute_command(Command* command) {
@@ -329,6 +473,9 @@ void print_current_working_directory(const char* ending) {
 void execute_commands_from_user_input() {
     char user_input[MAX_INPUT_SIZE];
     while (true) {
+        int console_input_stream = dup(fileno(stdin));
+        int console_output_stream = dup(fileno(stdout));
+        int console_error_stream = dup(fileno(stderr));
         print_current_working_directory("> ");
 
         // если не можем получить входную строку или достигнут конец файла
@@ -338,6 +485,9 @@ void execute_commands_from_user_input() {
         Command* command = init_command_from_str(user_input);
         execute_command(command);
         free(command);
+        dup2(console_input_stream, STDIN_FILENO);
+        dup2(console_output_stream, STDOUT_FILENO);
+        dup2(console_error_stream, STDERR_FILENO);
     }
 }
 
